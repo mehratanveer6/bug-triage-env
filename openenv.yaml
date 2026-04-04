@@ -1,0 +1,43 @@
+name: bug-triage-env
+version: "1.0.0"
+description: >
+  An OpenEnv environment where AI agents learn to triage software bug reports.
+  Agents classify severity, route to teams, and select correct actions.
+author: tanveer-mehra
+tags:
+  - openenv
+  - bug-triage
+  - software-engineering
+  - nlp
+tasks:
+  - name: severity-classification
+    difficulty: easy
+    description: Classify bug report severity as low, medium, or high
+    valid_actions: ["low", "medium", "high"]
+  - name: team-routing
+    difficulty: medium
+    description: Route bug report to correct engineering team
+    valid_actions: ["frontend", "backend", "infra"]
+  - name: action-selection
+    difficulty: hard
+    description: Select the correct next action for the bug report
+    valid_actions: ["hotfix", "patch", "optimize", "schedule", "close"]
+observation_space:
+  type: text
+  fields:
+    - task_name
+    - bug_id
+    - bug_title
+    - bug_description
+    - prompt
+    - valid_actions
+    - step_number
+action_space:
+  type: discrete
+  description: Single word answer from valid_actions list
+reward_range: [-0.2, 1.0]
+max_steps: 5
+endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
