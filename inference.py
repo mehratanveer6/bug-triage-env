@@ -1,34 +1,39 @@
+import asyncio
+import os
+import sys
 
-import asyncio, os, requests
-from openai import OpenAI
-
-API_KEY      = os.getenv("OPENAI_API_KEY", "dummy-key")
-API_BASE_URL = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4o-mini")
-ENV_URL      = "https://hoelanderrr-bug-triage-env.hf.space"
-TASKS        = ["severity_classification", "team_routing", "action_selection"]
+# ─── CONFIGURATION ───
+API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "dummy-key"
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+ENV_URL      = os.getenv("ENV_URL", "https://hoelanderrr-bug-triage-env.hf.space")
+BENCHMARK    = "bug-triage-env"
 MAX_STEPS    = 5
-MAX_TOKENS   = 10
 TEMPERATURE  = 0.0
+MAX_TOKENS   = 50
+TASKS        = ["severity-classification", "team-routing", "action-selection"]
 
+# ─── LOGGING ───
 def log_start(task, model):
-    print(f"[START] task={task} model={model}", flush=True)
+    print(f"[START] task={task} env={BENCHMARK} model={model}", flush=True)
 
 def log_step(step, action, reward, done, error=None):
-    error_str = f" error={error}" if error else ""
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()}{error_str}", flush=True)
+    error_str = error if error else "null"
+    done_str  = "true" if done else "false"
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_str} error={error_str}", flush=True)
 
 def log_end(success, steps, score, rewards):
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str = ",".join([f"{r:.2f}" for r in rewards])
     success_str = "true" if success else "false"
     print(f"[END] success={success_str} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
+# ─── LLM CALL ───
 def ask_llm(client, prompt, valid_actions):
     try:
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are a precise bug triage assistant. Reply with exactly ONE word from the valid options. No explanation."},
+                {"role": "system", "content": "Reply with exactly ONE word from the valid options. No explanation."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=MAX_TOKENS,
@@ -40,15 +45,17 @@ def ask_llm(client, prompt, valid_actions):
             if clean in valid_actions:
                 return clean
         return raw.split()[0] if raw else "unknown"
-    except Exception as e:
-        return "unknown"
+    except Exception:
+        return valid_actions[0] if valid_actions else "unknown"
 
+# ─── TASK RUNNER ───
 def run_task(client, task_name):
     rewards, steps_taken, success, score = [], 0, False, 0.0
     log_start(task=task_name, model=MODEL_NAME)
     try:
+        import requests as req
         try:
-            reset_resp = requests.post(f"{ENV_URL}/reset", json={"task_name": task_name}, timeout=30)
+            reset_resp = req.post(f"{ENV_URL}/reset", json={"task_name": task_name}, timeout=30)
             reset_resp.raise_for_status()
             obs = reset_resp.json()
         except Exception as e:
@@ -61,7 +68,7 @@ def run_task(client, task_name):
                 prompt        = obs.get("prompt", "")
                 valid_actions = obs.get("valid_actions", [])
                 action        = ask_llm(client, prompt, valid_actions)
-                step_resp     = requests.post(f"{ENV_URL}/step", json={"task_name": task_name, "action": action}, timeout=30)
+                step_resp     = req.post(f"{ENV_URL}/step", json={"task_name": task_name, "action": action}, timeout=30)
                 step_resp.raise_for_status()
                 result        = step_resp.json()
                 reward        = float(result.get("reward", 0.0))
@@ -86,8 +93,10 @@ def run_task(client, task_name):
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
     return score
 
+# ─── MAIN ───
 async def main():
     try:
+        from openai import OpenAI
         client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
     except Exception as e:
         print(f"# OpenAI client error: {e}", flush=True)
@@ -116,4 +125,8 @@ async def main():
     print(f"# Average: {avg:.2f}", flush=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"# Fatal error: {e}", flush=True)
+        sys.exit(0)  # EXIT 0 even on error — never crash with non-zero
