@@ -1,19 +1,19 @@
 import asyncio
 import os
 import sys
+import requests
+from openai import OpenAI
 
-# ─── CONFIGURATION ───
 API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "dummy-key"
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 ENV_URL      = os.getenv("ENV_URL", "https://hoelanderrr-bug-triage-env.hf.space")
 BENCHMARK    = "bug-triage-env"
 MAX_STEPS    = 5
-TEMPERATURE  = 0.0
 MAX_TOKENS   = 50
+TEMPERATURE  = 0.0
 TASKS        = ["severity-classification", "team-routing", "action-selection"]
 
-# ─── LOGGING ───
 def log_start(task, model):
     print(f"[START] task={task} env={BENCHMARK} model={model}", flush=True)
 
@@ -27,7 +27,6 @@ def log_end(success, steps, score, rewards):
     success_str = "true" if success else "false"
     print(f"[END] success={success_str} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
-# ─── LLM CALL ───
 def ask_llm(client, prompt, valid_actions):
     try:
         response = client.chat.completions.create(
@@ -48,14 +47,12 @@ def ask_llm(client, prompt, valid_actions):
     except Exception:
         return valid_actions[0] if valid_actions else "unknown"
 
-# ─── TASK RUNNER ───
 def run_task(client, task_name):
     rewards, steps_taken, success, score = [], 0, False, 0.0
     log_start(task=task_name, model=MODEL_NAME)
     try:
-        import requests as req
         try:
-            reset_resp = req.post(f"{ENV_URL}/reset", json={"task_name": task_name}, timeout=30)
+            reset_resp = requests.post(f"{ENV_URL}/reset", json={"task_name": task_name}, timeout=30)
             reset_resp.raise_for_status()
             obs = reset_resp.json()
         except Exception as e:
@@ -68,7 +65,7 @@ def run_task(client, task_name):
                 prompt        = obs.get("prompt", "")
                 valid_actions = obs.get("valid_actions", [])
                 action        = ask_llm(client, prompt, valid_actions)
-                step_resp     = req.post(f"{ENV_URL}/step", json={"task_name": task_name, "action": action}, timeout=30)
+                step_resp     = requests.post(f"{ENV_URL}/step", json={"task_name": task_name, "action": action}, timeout=30)
                 step_resp.raise_for_status()
                 result        = step_resp.json()
                 reward        = float(result.get("reward", 0.0))
@@ -85,7 +82,7 @@ def run_task(client, task_name):
 
         score   = max(rewards) if rewards else 0.0
         success = score >= 0.8
-    except Exception as e:
+    except Exception:
         score, success = 0.0, False
     finally:
         if not rewards:
@@ -93,10 +90,8 @@ def run_task(client, task_name):
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
     return score
 
-# ─── MAIN ───
 async def main():
     try:
-        from openai import OpenAI
         client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
     except Exception as e:
         print(f"# OpenAI client error: {e}", flush=True)
@@ -129,4 +124,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         print(f"# Fatal error: {e}", flush=True)
-        sys.exit(0)  # EXIT 0 even on error — never crash with non-zero
+        sys.exit(0)
