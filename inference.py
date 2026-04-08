@@ -4,8 +4,8 @@ import sys
 import requests
 from openai import OpenAI
 
-# ── Use exactly what the validator injects ──
-API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or "dummy-key"
+# Use ONLY what validator injects - no HF_TOKEN fallback
+API_KEY      = os.environ.get("API_KEY", "dummy-key")
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 ENV_URL      = os.environ.get("ENV_URL", "https://hoelanderrr-bug-triage-env.hf.space")
@@ -100,12 +100,10 @@ def run_task(client, task_name):
     return score
 
 async def main():
-    # Initialize with validator-injected credentials
     client = OpenAI(
         api_key=API_KEY,
         base_url=API_BASE_URL,
     )
-
     print(f"# Running Bug Triage Environment Baseline", flush=True)
     print(f"# Model: {MODEL_NAME}", flush=True)
     print(f"# Env URL: {ENV_URL}", flush=True)
