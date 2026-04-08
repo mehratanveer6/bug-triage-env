@@ -4,10 +4,11 @@ import sys
 import requests
 from openai import OpenAI
 
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "dummy-key"
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-ENV_URL      = os.getenv("ENV_URL", "https://hoelanderrr-bug-triage-env.hf.space")
+# ── Use exactly what the validator injects ──
+API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or "dummy-key"
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+ENV_URL      = os.environ.get("ENV_URL", "https://hoelanderrr-bug-triage-env.hf.space")
 BENCHMARK    = "bug-triage-env"
 MAX_STEPS    = 5
 MAX_TOKENS   = 50
@@ -23,7 +24,7 @@ def log_step(step, action, reward, done, error=None):
     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_str} error={error_str}", flush=True)
 
 def log_end(success, steps, score, rewards):
-    rewards_str = ",".join([f"{r:.2f}" for r in rewards])
+    rewards_str = ",".join([f"{r:.2f}" for r in rewards]) if rewards else "0.00"
     success_str = "true" if success else "false"
     print(f"[END] success={success_str} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
@@ -43,7 +44,7 @@ def ask_llm(client, prompt, valid_actions):
             clean = word.strip(".,!?;:")
             if clean in valid_actions:
                 return clean
-        return raw.split()[0] if raw else "unknown"
+        return raw.split()[0] if raw else valid_actions[0]
     except Exception:
         return valid_actions[0] if valid_actions else "unknown"
 
@@ -52,7 +53,11 @@ def run_task(client, task_name):
     log_start(task=task_name, model=MODEL_NAME)
     try:
         try:
-            reset_resp = requests.post(f"{ENV_URL}/reset", json={"task_name": task_name}, timeout=30)
+            reset_resp = requests.post(
+                f"{ENV_URL}/reset",
+                json={"task_name": task_name},
+                timeout=30
+            )
             reset_resp.raise_for_status()
             obs = reset_resp.json()
         except Exception as e:
@@ -65,7 +70,11 @@ def run_task(client, task_name):
                 prompt        = obs.get("prompt", "")
                 valid_actions = obs.get("valid_actions", [])
                 action        = ask_llm(client, prompt, valid_actions)
-                step_resp     = requests.post(f"{ENV_URL}/step", json={"task_name": task_name, "action": action}, timeout=30)
+                step_resp     = requests.post(
+                    f"{ENV_URL}/step",
+                    json={"task_name": task_name, "action": action},
+                    timeout=30
+                )
                 step_resp.raise_for_status()
                 result        = step_resp.json()
                 reward        = float(result.get("reward", 0.0))
@@ -91,11 +100,11 @@ def run_task(client, task_name):
     return score
 
 async def main():
-    try:
-        client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
-    except Exception as e:
-        print(f"# OpenAI client error: {e}", flush=True)
-        client = None
+    # Initialize with validator-injected credentials
+    client = OpenAI(
+        api_key=API_KEY,
+        base_url=API_BASE_URL,
+    )
 
     print(f"# Running Bug Triage Environment Baseline", flush=True)
     print(f"# Model: {MODEL_NAME}", flush=True)
